@@ -1,0 +1,85 @@
+def run(model: str, max_results: int, score_threshold: float, 
+        camera_id: int, width: int, height: int) -> None:
+    
+    # Tính toán trung tâm của khung hình
+    frame_center_x = width // 2
+    frame_center_y = height // 2
+
+    def move_servo_to_center(bbox_center_x, bbox_center_y):
+        # Nếu tọa độ trung tâm của bounding box lệch khỏi trung tâm khung hình thì điều chỉnh servo
+        tolerance = 20  # Khoảng lệch cho phép
+        if abs(bbox_center_x - frame_center_x) > tolerance:
+            if bbox_center_x < frame_center_x:
+                # Di chuyển servo sang trái
+                print("Di chuyển servo sang trái.")
+                set_angle(current_angle - 5)  # Điều chỉnh góc quay nhỏ
+            else:
+                # Di chuyển servo sang phải
+                print("Di chuyển servo sang phải.")
+                set_angle(current_angle + 5)
+
+        if abs(bbox_center_y - frame_center_y) > tolerance:
+            if bbox_center_y < frame_center_y:
+                # Di chuyển servo lên
+                print("Di chuyển servo lên.")
+                set_angle(current_angle + 5)  # Điều chỉnh góc quay theo hướng lên
+            else:
+                # Di chuyển servo xuống
+                print("Di chuyển servo xuống.")
+                set_angle(current_angle - 5)
+
+    # Continuously capture images from the camera and run inference
+    while True:
+        im = picam2.capture_array()
+        image = cv2.resize(im, (640, 480))
+        image = cv2.flip(image, -1)
+
+        # Convert the image from BGR to RGB as required by the TFLite model.
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_image)
+
+        # Run object detection using the model.
+        detector.detect_async(mp_image, time.time_ns() // 1_000_000)
+
+        if detection_result_list:
+            # Nếu phát hiện lửa, dừng servo và làm sáng đèn LED
+            current_frame = visualize(current_frame, detection_result_list[0])
+            detection_frame = current_frame
+
+            # Lấy tọa độ trung tâm của bounding box
+            for detection in detection_result_list[0].detections:
+                bbox = detection.bounding_box
+                x_min = bbox.origin_x
+                y_min = bbox.origin_y
+                bbox_center_x = x_min + bbox.width // 2
+                bbox_center_y = y_min + bbox.height // 2
+                width = bbox.width
+                height = bbox.height
+                print(f"Lửa được phát hiện! Tọa độ trung tâm của box: ({bbox_center_x}, {bbox_center_y}), "
+                      f"Chiều rộng: {width}, Chiều cao: {height}")
+
+                # Điều chỉnh servo để di chuyển box về giữa khung hình
+                move_servo_to_center(bbox_center_x, bbox_center_y)
+
+            print("Dừng servo và làm sáng đèn LED.")
+            pwm.stop()  # Dừng servo khi phát hiện lửa
+            GPIO.output(led_pin, GPIO.HIGH)  # Bật đèn LED
+            detection_result_list.clear()
+        else:
+            # Tiếp tục quay servo nếu không phát hiện lửa
+            GPIO.output(led_pin, GPIO.LOW)  # Tắt đèn LED
+            for angle in range(0, 181, 10):  # Quay từ 0 đến 180 độ
+                set_angle(angle)
+                sleep(0.1)
+
+        if detection_frame is not None:
+            cv2.imshow('object_detection', detection_frame)
+
+        # Stop the program if the ESC key is pressed.
+        if cv2.waitKey(1) == 27:
+            break
+
+    detector.close()
+    pwm.stop()
+    GPIO.cleanup()
+    cv2.destroyAllWindows()
