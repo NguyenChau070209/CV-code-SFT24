@@ -1,85 +1,151 @@
+import argparse
+import sys
+import time
+import cv2
+import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
+from utils import visualize
+from picamera2 import Picamera2
+import RPi.GPIO as GPIO
+from time import sleep
+
+# Global variables to calculate FPS
+COUNTER, FPS = 0, 0
+START_TIME = time.time()
+picam2 = Picamera2()
+picam2.preview_configuration.main.size = (640, 480)
+picam2.preview_configuration.main.format = "RGB888"
+picam2.preview_configuration.align()
+picam2.configure("preview")
+picam2.start()
+
+# Servo setup
+servo_pin = 18  # GPIO pin kết nối với servo
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(servo_pin, GPIO.OUT)
+
+# LED setup
+led_pin = 17  # GPIO pin kết nối với LED
+GPIO.setup(led_pin, GPIO.OUT)
+
+# Khởi tạo PWM cho servo (50Hz)
+pwm = GPIO.PWM(servo_pin, 50)
+pwm.start(0)
+
+# Variables to track servo angle direction
+servo_angle = 0
+servo_direction = 1  # 1 for increasing, -1 for decreasing
+
+def set_angle(angle):
+    duty = angle / 18 + 2
+    GPIO.output(servo_pin, True)
+    pwm.ChangeDutyCycle(duty)
+    sleep(0.5)
+    GPIO.output(servo_pin, False)
+    pwm.ChangeDutyCycle(0)
+
+def move_servo_continuous():
+    global servo_angle, servo_direction
+    set_angle(servo_angle)
+    servo_angle += 10 * servo_direction
+    if servo_angle >= 180 or servo_angle <= 0:
+        servo_direction *= -1
+
+def move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_center_y):
+    tolerance = 20  # Điều chỉnh này nếu cần
+    if abs(bbox_center_x - frame_center_x) > tolerance:
+        if bbox_center_x < frame_center_x:
+            print("Di chuyển servo sang trái.")
+            set_angle(servo_angle - 5)
+        else:
+            print("Di chuyển servo sang phải.")
+            set_angle(servo_angle + 5)
+    
+    if abs(bbox_center_y - frame_center_y) > tolerance:
+        if bbox_center_y < frame_center_y:
+            print("Di chuyển servo lên.")
+            set_angle(servo_angle + 5)
+        else:
+            print("Di chuyển servo xuống.")
+            set_angle(servo_angle - 5)
+
 def run(model: str, max_results: int, score_threshold: float, 
         camera_id: int, width: int, height: int) -> None:
     
-    # Tính toán trung tâm của khung hình
     frame_center_x = width // 2
     frame_center_y = height // 2
+    detection_result_list = []
 
-    def move_servo_to_center(bbox_center_x, bbox_center_y):
-        # Nếu tọa độ trung tâm của bounding box lệch khỏi trung tâm khung hình thì điều chỉnh servo
-        tolerance = 20  # Khoảng lệch cho phép
-        if abs(bbox_center_x - frame_center_x) > tolerance:
-            if bbox_center_x < frame_center_x:
-                # Di chuyển servo sang trái
-                print("Di chuyển servo sang trái.")
-                set_angle(current_angle - 5)  # Điều chỉnh góc quay nhỏ
-            else:
-                # Di chuyển servo sang phải
-                print("Di chuyển servo sang phải.")
-                set_angle(current_angle + 5)
+    def save_result(result: vision.ObjectDetectorResult, unused_output_image: mp.Image, timestamp_ms: int):
+        detection_result_list.append(result)
 
-        if abs(bbox_center_y - frame_center_y) > tolerance:
-            if bbox_center_y < frame_center_y:
-                # Di chuyển servo lên
-                print("Di chuyển servo lên.")
-                set_angle(current_angle + 5)  # Điều chỉnh góc quay theo hướng lên
-            else:
-                # Di chuyển servo xuống
-                print("Di chuyển servo xuống.")
-                set_angle(current_angle - 5)
+    # Initialize the object detection model
+    base_options = python.BaseOptions(model_asset_path=model)
+    options = vision.ObjectDetectorOptions(base_options=base_options,
+                                           running_mode=vision.RunningMode.LIVE_STREAM,
+                                           max_results=max_results, score_threshold=score_threshold,
+                                           result_callback=save_result)
+    detector = vision.ObjectDetector.create_from_options(options)
 
-    # Continuously capture images from the camera and run inference
     while True:
         im = picam2.capture_array()
         image = cv2.resize(im, (640, 480))
         image = cv2.flip(image, -1)
-
-        # Convert the image from BGR to RGB as required by the TFLite model.
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_image)
-
-        # Run object detection using the model.
         detector.detect_async(mp_image, time.time_ns() // 1_000_000)
 
         if detection_result_list:
             # Nếu phát hiện lửa, dừng servo và làm sáng đèn LED
-            current_frame = visualize(current_frame, detection_result_list[0])
-            detection_frame = current_frame
+            current_frame = visualize(image, detection_result_list[0])
 
-            # Lấy tọa độ trung tâm của bounding box
             for detection in detection_result_list[0].detections:
                 bbox = detection.bounding_box
                 x_min = bbox.origin_x
                 y_min = bbox.origin_y
-                bbox_center_x = x_min + bbox.width // 2
-                bbox_center_y = y_min + bbox.height // 2
                 width = bbox.width
                 height = bbox.height
-                print(f"Lửa được phát hiện! Tọa độ trung tâm của box: ({bbox_center_x}, {bbox_center_y}), "
+                bbox_center_x = x_min + width // 2
+                bbox_center_y = y_min + height // 2
+
+                print(f"Lửa được phát hiện! Tọa độ trung tâm: ({bbox_center_x}, {bbox_center_y}), "
                       f"Chiều rộng: {width}, Chiều cao: {height}")
 
-                # Điều chỉnh servo để di chuyển box về giữa khung hình
-                move_servo_to_center(bbox_center_x, bbox_center_y)
+                # Di chuyển servo để đưa detect box về giữa khung hình
+                move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_center_y)
 
-            print("Dừng servo và làm sáng đèn LED.")
-            pwm.stop()  # Dừng servo khi phát hiện lửa
-            GPIO.output(led_pin, GPIO.HIGH)  # Bật đèn LED
+            pwm.stop()  # Dừng servo khi đã điều chỉnh
+            GPIO.output(led_pin, GPIO.HIGH)  # Bật đèn LED khi phát hiện lửa
             detection_result_list.clear()
+
         else:
-            # Tiếp tục quay servo nếu không phát hiện lửa
-            GPIO.output(led_pin, GPIO.LOW)  # Tắt đèn LED
-            for angle in range(0, 181, 10):  # Quay từ 0 đến 180 độ
-                set_angle(angle)
-                sleep(0.1)
+            # Nếu không phát hiện lửa, tiếp tục quay servo và tắt đèn LED
+            GPIO.output(led_pin, GPIO.LOW)  # Tắt đèn LED khi không phát hiện lửa
+            move_servo_continuous()
 
-        if detection_frame is not None:
-            cv2.imshow('object_detection', detection_frame)
-
-        # Stop the program if the ESC key is pressed.
-        if cv2.waitKey(1) == 27:
+        # Hiển thị khung hình camera
+        cv2.imshow('object_detection', image)
+        
+        if cv2.waitKey(1) == 27:  # Bấm ESC để thoát
             break
 
     detector.close()
     pwm.stop()
     GPIO.cleanup()
     cv2.destroyAllWindows()
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--model', help='Path of the object detection model.', default='best.tflite')
+    parser.add_argument('--maxResults', help='Max number of detection results.', default=5)
+    parser.add_argument('--scoreThreshold', help='The score threshold of detection results.', type=float, default=0.6)
+    parser.add_argument('--cameraId', help='Id of camera.', type=int, default=0)
+    parser.add_argument('--frameWidth', help='Width of frame to capture from camera.', type=int, default=640)
+    parser.add_argument('--frameHeight', help='Height of frame to capture from camera.', type=int, default=480)
+    args = parser.parse_args()
+
+    run(args.model, int(args.maxResults), args.scoreThreshold, int(args.cameraId), args.frameWidth, args.frameHeight)
+
+if __name__ == '__main__':
+    main()
