@@ -24,7 +24,7 @@ picam2.start()
 
 # Servo setup for X and Y axes
 servo_pin_x = 18  # GPIO pin for X-axis servo
-servo_pin_y = 19  # GPIO pin for Y-axis servo
+servo_pin_y = 14  # GPIO pin for Y-axis servo
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(servo_pin_x, GPIO.OUT)
 GPIO.setup(servo_pin_y, GPIO.OUT)
@@ -75,7 +75,7 @@ def set_angle(servo_pin, angle):
         pwm_x.ChangeDutyCycle(duty)
     else:
         pwm_y.ChangeDutyCycle(duty)
-    sleep(0.1)
+    sleep(0.08)
     GPIO.output(servo_pin, False)
     if servo_pin == servo_pin_x:
         pwm_x.ChangeDutyCycle(0)
@@ -84,6 +84,7 @@ def set_angle(servo_pin, angle):
 
 # Move servos based on detection box position
 def move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_center_y):
+    global servo_angle_x, servo_angle_y
     tolerance = 30  # Adjust this value if needed
 
     # X-axis control
@@ -96,7 +97,6 @@ def move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_cen
             new_angle_x = min(servo_angle_x + 5, 180)  # Prevent angle from going above 180
             set_angle(servo_pin_x, new_angle_x)
             print("move to right")
-        global servo_angle_x
         servo_angle_x = new_angle_x
     
     # Y-axis control
@@ -109,7 +109,6 @@ def move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_cen
             new_angle_y = max(servo_angle_y - 5, 0)  # Prevent angle from going below 0
             set_angle(servo_pin_y, new_angle_y)
             print("move down")
-        global servo_angle_y
         servo_angle_y = new_angle_y
 
 # Move servo continuously between 0 and 180 degrees
@@ -201,4 +200,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
