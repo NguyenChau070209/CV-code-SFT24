@@ -13,6 +13,8 @@ from time import sleep
 # Global variables to calculate FPS
 COUNTER, FPS = 0, 0
 START_TIME = time.time()
+
+# Initialize camera
 picam2 = Picamera2()
 picam2.preview_configuration.main.size = (640, 480)
 picam2.preview_configuration.main.format = "RGB888"
@@ -30,7 +32,6 @@ GPIO.setup(servo_pin_y, GPIO.OUT)
 # LED setup
 led_pin = 15  # GPIO pin for LED
 GPIO.setup(led_pin, GPIO.OUT)
-
 GPIO.output(led_pin, GPIO.LOW)
 
 # Initialize PWM for both servos (50Hz)
@@ -63,16 +64,16 @@ def show_fps(image):
                 font_size, font_color, font_thickness, cv2.LINE_AA)
 
 # Function to set servo angle for both X and Y axes
-def set_angle(servo, angle):
+def set_angle(servo_pin, angle):
     duty = angle / 18 + 2
-    GPIO.output(servo, True)
-    if servo == servo_pin_x:
+    GPIO.output(servo_pin, True)
+    if servo_pin == servo_pin_x:
         pwm_x.ChangeDutyCycle(duty)
     else:
         pwm_y.ChangeDutyCycle(duty)
     sleep(0.1)
-    GPIO.output(servo, False)
-    if servo == servo_pin_x:
+    GPIO.output(servo_pin, False)
+    if servo_pin == servo_pin_x:
         pwm_x.ChangeDutyCycle(0)
     else:
         pwm_y.ChangeDutyCycle(0)
@@ -84,20 +85,28 @@ def move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_cen
     # X-axis control
     if abs(bbox_center_x - frame_center_x) > tolerance:
         if bbox_center_x < frame_center_x:
-            set_angle(servo_pin_x, servo_angle_x - 5)
+            new_angle_x = max(servo_angle_x - 5, 0)  # Prevent angle from going below 0
+            set_angle(servo_pin_x, new_angle_x)
             print("move to left")
         else:
-            set_angle(servo_pin_x, servo_angle_x + 5)
+            new_angle_x = min(servo_angle_x + 5, 180)  # Prevent angle from going above 180
+            set_angle(servo_pin_x, new_angle_x)
             print("move to right")
+        global servo_angle_x
+        servo_angle_x = new_angle_x
     
     # Y-axis control
     if abs(bbox_center_y - frame_center_y) > tolerance:
         if bbox_center_y < frame_center_y:
-            set_angle(servo_pin_y, servo_angle_y + 5)
+            new_angle_y = min(servo_angle_y + 5, 180)  # Prevent angle from going above 180
+            set_angle(servo_pin_y, new_angle_y)
             print("move up")
         else:
-            set_angle(servo_pin_y, servo_angle_y - 5)
+            new_angle_y = max(servo_angle_y - 5, 0)  # Prevent angle from going below 0
+            set_angle(servo_pin_y, new_angle_y)
             print("move down")
+        global servo_angle_y
+        servo_angle_y = new_angle_y
 
 # Run function with two servo states
 def run(model: str, max_results: int, score_threshold: float, 
@@ -124,7 +133,7 @@ def run(model: str, max_results: int, score_threshold: float,
 
     while True:
         im = picam2.capture_array()
-        image = cv2.resize(im, (640, 480))
+        image = cv2.resize(im, (width, height))  # Use width and height parameters
         image = cv2.flip(image, -1)
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_image)
@@ -132,7 +141,8 @@ def run(model: str, max_results: int, score_threshold: float,
 
         # State 1: Servo moves continuously until 2 objects are detected
         if detection_count < 2:
-            move_servo_continuous()
+            # Consider implementing move_servo_continuous() if required
+            pass
         else:
             # State 2: Adjust servo based on object detection
             if detection_result_list:
@@ -169,14 +179,14 @@ def run(model: str, max_results: int, score_threshold: float,
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--model', help='Path of the object detection model.', default='best.tflite')
-    parser.add_argument('--maxResults', help='Max number of detection results.', default=5)
+    parser.add_argument('--maxResults', help='Max number of detection results.', default=5, type=int)
     parser.add_argument('--scoreThreshold', help='The score threshold of detection results.', type=float, default=0.6)
     parser.add_argument('--cameraId', help='Id of camera.', type=int, default=0)
     parser.add_argument('--frameWidth', help='Width of frame to capture from camera.', type=int, default=640)
     parser.add_argument('--frameHeight', help='Height of frame to capture from camera.', type=int, default=480)
     args = parser.parse_args()
 
-    run(args.model, int(args.maxResults), args.scoreThreshold, int(args.cameraId), args.frameWidth, args.frameHeight)
+    run(args.model, args.maxResults, args.scoreThreshold, args.cameraId, args.frameWidth, args.frameHeight)
 
 if __name__ == '__main__':
     main()
