@@ -149,6 +149,7 @@ def run(model: str, max_results: int, score_threshold: float,
 
         # State 1: Servo moves continuously until 2 objects are detected
         if detection_count < 2:
+            move_servo_continuous()
             # Consider implementing move_servo_continuous() if required
             pass
         else:
