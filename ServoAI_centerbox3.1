@@ -77,6 +77,14 @@ def set_angle(servo_pin, angle):
         pwm_x.ChangeDutyCycle(0)
     else:
         pwm_y.ChangeDutyCycle(0)
+        
+# Move servo continuously between 0 and 180 degrees
+def move_servo_continuous():
+    global servo_angle, servo_direction
+    set_angle(servo_angle)
+    servo_angle += 10 * servo_direction
+    if servo_angle >= 180 or servo_angle <= 0:
+        servo_direction *= -1
 
 # Move servos based on detection box position
 def move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_center_y):
