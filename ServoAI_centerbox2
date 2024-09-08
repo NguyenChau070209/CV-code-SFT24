@@ -26,9 +26,10 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setup(servo_pin, GPIO.OUT)
 
 # LED setup
-led_pin = 17  # GPIO pin kết nối với LED
+led_pin = 15  # GPIO pin kết nối với LED
 GPIO.setup(led_pin, GPIO.OUT)
 
+GPIO.output(led_pin, GPIO.LOW)
 # Khởi tạo PWM cho servo (50Hz)
 pwm = GPIO.PWM(servo_pin, 50)
 pwm.start(0)
@@ -77,9 +78,10 @@ def move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_cen
     if abs(bbox_center_x - frame_center_x) > tolerance:
         if bbox_center_x < frame_center_x:
             set_angle(servo_angle - 5)
+            print("move to left")
         else:
             set_angle(servo_angle + 5)
-    
+            print("move to right")
     if abs(bbox_center_y - frame_center_y) > tolerance:
         if bbox_center_y < frame_center_y:
             set_angle(servo_angle + 5)
@@ -134,6 +136,7 @@ def run(model: str, max_results: int, score_threshold: float,
 
                 GPIO.output(led_pin, GPIO.HIGH)  # Bật đèn LED khi phát hiện
                 detection_result_list.clear()
+                print("center")
             else:
                 GPIO.output(led_pin, GPIO.LOW)  # Tắt đèn LED khi không phát hiện
 
