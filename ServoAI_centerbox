@@ -12,6 +12,8 @@ from time import sleep
 # Global variables to calculate FPS
 COUNTER, FPS = 0, 0
 START_TIME = time.time()
+
+# Initialize the camera
 picam2 = Picamera2()
 picam2.preview_configuration.main.size = (640, 480)
 picam2.preview_configuration.main.format = "RGB888"
@@ -20,30 +22,25 @@ picam2.configure("preview")
 picam2.start()
 
 # Servo setup
-servo_pin = 18  # GPIO pin kết nối với servo
+servo_pin = 18  # GPIO pin connected to servo
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(18, GPIO.OUT)
+GPIO.setup(servo_pin, GPIO.OUT)
 
 # LED setup
-led_pin = 15  # GPIO pin kết nối với LED
-GPIO.setup(15, GPIO.OUT)
+led_pin = 15  # GPIO pin connected to LED
+GPIO.setup(led_pin, GPIO.OUT)
 
-# Khởi tạo PWM cho servo (50Hz)
+# Initialize PWM for servo (50Hz)
 pwm = GPIO.PWM(servo_pin, 50)
 pwm.start(0)
-# Show the FPS
-fps_text = 'FPS = {:.1f}'.format(FPS)
-text_location = (left_margin, row_size)
-current_frame = image
-cv2.putText(current_frame, fps_text, text_location, cv2.FONT_HERSHEY_DUPLEX,
-            font_size, text_color, font_thickness, cv2.LINE_AA)    
 
 # Variables to track servo angle direction
-servo_angle = 90  # Khởi đầu từ góc giữa
+servo_angle = 90  # Start at the middle angle
 servo_direction = 1  # 1 for increasing, -1 for decreasing
 
 def set_angle(angle):
-    angle = max(0, min(180, angle))  # Đảm bảo góc nằm trong khoảng từ 0 đến 180 độ
+    """Set the servo angle."""
+    angle = max(0, min(180, angle))  # Ensure the angle is within 0 to 180 degrees
     duty = angle / 18 + 2
     GPIO.output(servo_pin, True)
     pwm.ChangeDutyCycle(duty)
@@ -52,6 +49,7 @@ def set_angle(angle):
     pwm.ChangeDutyCycle(0)
 
 def move_servo_continuous():
+    """Continuously move the servo back and forth."""
     global servo_angle, servo_direction
     set_angle(servo_angle)
     servo_angle += 10 * servo_direction
@@ -59,21 +57,22 @@ def move_servo_continuous():
         servo_direction *= -1
 
 def move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_center_y):
-    tolerance = 20  # Điều chỉnh này nếu cần
+    """Move servo to center detected object in the frame."""
+    tolerance = 20  # Adjust if necessary
     if abs(bbox_center_x - frame_center_x) > tolerance:
         if bbox_center_x < frame_center_x:
-            print("Di chuyển servo sang trái.")
+            print("Moving servo left.")
             set_angle(servo_angle - 5)
         else:
-            print("Di chuyển servo sang phải.")
+            print("Moving servo right.")
             set_angle(servo_angle + 5)
     
     if abs(bbox_center_y - frame_center_y) > tolerance:
         if bbox_center_y < frame_center_y:
-            print("Di chuyển servo lên.")
+            print("Moving servo up.")
             set_angle(servo_angle + 5)
         else:
-            print("Di chuyển servo xuống.")
+            print("Moving servo down.")
             set_angle(servo_angle - 5)
 
 def run(model: str, max_results: int, score_threshold: float, 
@@ -103,7 +102,7 @@ def run(model: str, max_results: int, score_threshold: float,
         detector.detect_async(mp_image, time.time_ns() // 1_000_000)
 
         if detection_result_list:
-            # Nếu phát hiện lửa, dừng servo và làm sáng đèn LED
+            # If fire is detected, stop servo and turn on LED
             current_frame = visualize(image, detection_result_list[0])
 
             for detection in detection_result_list[0].detections:
@@ -115,25 +114,25 @@ def run(model: str, max_results: int, score_threshold: float,
                 bbox_center_x = x_min + width // 2
                 bbox_center_y = y_min + height // 2
 
-                print(f"Lửa được phát hiện! Tọa độ trung tâm: ({bbox_center_x}, {bbox_center_y}), "
-                      f"Chiều rộng: {width}, Chiều cao: {height}")
+                print(f"Fire detected! Center coordinates: ({bbox_center_x}, {bbox_center_y}), "
+                      f"Width: {width}, Height: {height}")
 
-                # Di chuyển servo để đưa detect box về giữa khung hình
+                # Move servo to center detected box
                 move_servo_to_center(bbox_center_x, bbox_center_y, frame_center_x, frame_center_y)
 
-            pwm.stop()  # Dừng servo khi đã điều chỉnh
-            GPIO.output(led_pin, GPIO.HIGH)  # Bật đèn LED khi phát hiện lửa
+            pwm.stop()  # Stop servo after adjustment
+            GPIO.output(led_pin, GPIO.HIGH)  # Turn on LED when fire is detected
             detection_result_list.clear()
 
         else:
-            # Nếu không phát hiện lửa, tiếp tục quay servo và tắt đèn LED
-            GPIO.output(led_pin, GPIO.LOW)  # Tắt đèn LED khi không phát hiện lửa
+            # If no fire is detected, continue sweeping servo and turn off LED
+            GPIO.output(led_pin, GPIO.LOW)  # Turn off LED when no fire is detected
             move_servo_continuous()
 
-        # Hiển thị khung hình camera
+        # Display the camera frame
         cv2.imshow('object_detection', image)
         
-        if cv2.waitKey(1) == 27:  # Bấm ESC để thoát
+        if cv2.waitKey(1) == 27:  # Press ESC to exit
             break
 
     detector.close()
