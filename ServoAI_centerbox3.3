@@ -118,6 +118,7 @@ def move_servo_continuous():
     servo_angle += 10 * servo_direction
     if servo_angle >= 180 or servo_angle <= 0:
         servo_direction *= -1
+        
 # Global variables to track detection time
 last_detection_time = time.time()
 time_between_detections = 0
