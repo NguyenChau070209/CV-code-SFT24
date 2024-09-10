@@ -23,3 +23,16 @@ def send_sms_alert():
 
 # Thực hiện gửi tin nhắn
 send_sms_alert()
+
+from twilio.rest import Client
+
+account_sid = 'AC0bcc2d0c60c6be5b655f6793a522c0ff'
+auth_token = '9ddc84eca43e2b3324f872a490a0d66a'
+client = Client(account_sid, auth_token)
+
+message = client.messages.create(
+  from_='+17278004258',
+  to='+840963286361'
+)
+
+print(message.sid)
